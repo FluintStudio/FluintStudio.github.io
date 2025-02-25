@@ -1,7 +1,11 @@
 version:0
 string|app_name|Rmx1aW50IFN0dWRpbw==
+string|contact_behance_url|aHR0cHM6Ly93d3cuYmVoYW5jZS5uZXQvZmx1aW50c3R1ZGlv
+string|contact_behance|UG9ydGZvbGlv
+string|contact_email_url|bWFpbHRvOmhvbGFAZmx1aW50c3R1ZGlvLmNvbQ==
 string|contact_email|aG9sYUBmbHVpbnRzdHVkaW8uY29t
-string|contact_instagram|QGZsdWludHN0dWRpbw==
+string|contact_instagram_url|aHR0cHM6Ly9pbnN0YWdyYW0uY29tL2ZsdWludHN0dWRpbw==
+string|contact_instagram|SW5zdGFncmFt
 string|contact_phone_number|KCszNCkgNjczIDk4IDc5IDc3
 string|home_message|U0VOVElNT1MgTEFTIE1PTEVTVElBUwpFU1RBTU9TIEFDVFVBTElaQU5ETyBOVUVTVFJBIFdFQg==
 string|logo_description|dmlzdWFsaXphY2nDs24gYXJxdWl0ZWN0w7NuaWNhIHkgZGlzZcOxbw==
