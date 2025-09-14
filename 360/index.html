@@ -107,6 +107,22 @@
       });
     }
 
+    function preloadImage(url) {
+      return new Promise(function(resolve, reject) {
+        var img = new Image();
+        img.onload = function() { resolve({ url: url, width: img.naturalWidth, height: img.naturalHeight }); };
+        img.onerror = function() { reject(new Error('Failed to load image ' + url)); };
+        img.src = url;
+      });
+    }
+
+    function showOverlayMessage(text) {
+      var el = document.getElementById('bottom-overlay');
+      if (!el) return;
+      el.textContent = String(text || '');
+      el.classList.add('show');
+    }
+
     function init() {
       if (!window.Marzipano) {
         console.error('Marzipano not available');
@@ -114,102 +130,173 @@
       }
 
       var hasDeviceOrientation = 'DeviceOrientationEvent' in window || 'DeviceMotionEvent' in window;
-
+      
       var panoElement = document.getElementById('pano');
       var viewer = new Marzipano.Viewer(panoElement, {
         controls: { mouseViewMode: 'drag' }
       });
 
-      var source = Marzipano.ImageUrlSource.fromString('views/1/img1.webp');
-      var geometry = new Marzipano.EquirectGeometry([{ width: 4096 }]);
+      // Pick best available image: try WebP then PNG; verify decode
+      var candidateWebp = 'views/1/img1.webp';
+      var chosen = null;
 
-      var limiter = Marzipano.RectilinearView.limit.traditional(4096, 120 * Math.PI / 180);
-      var view = new Marzipano.RectilinearView({ yaw: 0, pitch: 0, fov: 90 * Math.PI/180 }, limiter);
+      preloadImage(candidateWebp).then(function(info) {
+        chosen = info;
 
-      var scene = viewer.createScene({ source: source, geometry: geometry, view: view, pinFirstLevel: true });
-      scene.switchTo({ transitionDuration: 800 });
-
-      var gyroBtn = document.getElementById('gyro-btn');
-      var resetBtn = document.getElementById('reset-btn');
-
-      var controls = viewer.controls();
-      var deviceOrientationMethod = null;
-
-      function updateGyroButton(enabled) {
-        gyroBtn.textContent = enabled ? 'Disable Gyro' : 'Enable Gyro';
-        gyroBtn.setAttribute('aria-pressed', String(enabled));
-      }
-
-      function enableGyro() {
-        if (!deviceOrientationMethod) {
-          try {
-            if (typeof DeviceOrientationControlMethod !== 'function') {
-              throw new Error('DeviceOrientationControlMethod not found');
-            }
-            deviceOrientationMethod = new DeviceOrientationControlMethod();
-            controls.registerMethod('deviceOrientation', deviceOrientationMethod);
-          } catch (e) {
-            console.warn('DeviceOrientation control unavailable:', e);
-            return false;
-          }
-        }
-        controls.enableMethod('deviceOrientation');
-        updateGyroButton(true);
-        return true;
-      }
-
-      function disableGyro() {
-        if (deviceOrientationMethod) {
-          controls.disableMethod('deviceOrientation');
-          updateGyroButton(false);
-        }
-      }
-
-      function requestPermissionIfNeeded() {
-        var Dio = window.DeviceOrientationEvent;
-        var Dmo = window.DeviceMotionEvent;
-        var need = (Dio && typeof Dio.requestPermission === 'function') || (Dmo && typeof Dmo.requestPermission === 'function');
-        if (!need) return Promise.resolve('granted');
-
-        var req = Dio && typeof Dio.requestPermission === 'function'
-          ? Dio.requestPermission()
-          : Dmo.requestPermission();
-
-        return req.catch(function(err) {
-          console.warn('Permission request failed:', err);
-          throw err;
-        });
-      }
-
-      gyroBtn.addEventListener('click', function() {
-        var isEnabled = gyroBtn.getAttribute('aria-pressed') === 'true';
-        if (isEnabled) {
-          disableGyro();
+        // WebGL capability check
+        var gl = document.createElement('canvas').getContext('webgl');
+        if (!gl) {
+          showOverlayMessage('WebGL is not available on this device/browser.');
           return;
         }
-        requestPermissionIfNeeded().then(function(result) {
-          if (result && result !== 'granted') return;
-          enableGyro();
-        }).catch(function() {
-          // denied -> keep mouse/touch controls
-        });
-      });
+        var maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
 
-      resetBtn.addEventListener('click', function() {
-        scene.lookTo({ yaw: 0, pitch: 0, fov: 90 * Math.PI/180 }, { transitionDuration: 600 });
-      });
-
-      document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-          disableGyro();
+        function downscaleToMaxWidth(imageUrl, imageWidth, imageHeight, maxWidth) {
+          return new Promise(function(resolve, reject) {
+            var img = new Image();
+            img.onload = function() {
+              var scale = Math.min(1, maxWidth / imageWidth);
+              var targetW = Math.floor(imageWidth * scale);
+              var targetH = Math.floor(imageHeight * scale);
+              try {
+                var canvas = document.createElement('canvas');
+                canvas.width = targetW;
+                canvas.height = targetH;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, targetW, targetH);
+                var dataUrl = canvas.toDataURL('image/webp', 0.9);
+                resolve({ url: dataUrl, width: targetW, height: targetH });
+              } catch (e) {
+                reject(e);
+              }
+            };
+            img.onerror = function() { reject(new Error('Failed to load original image for downscale')); };
+            img.src = imageUrl;
+          });
         }
-      });
 
-      updateGyroButton(false);
-      if (!hasDeviceOrientation || typeof DeviceOrientationControlMethod !== 'function') {
-        gyroBtn.disabled = true;
-        gyroBtn.title = 'Device orientation not supported on this device/browser';
-      }
+        function makeSourceAndGeometry(imgInfo) {
+          var src = Marzipano.ImageUrlSource.fromString(imgInfo.url);
+          var geom = new Marzipano.EquirectGeometry([{ width: imgInfo.width }]);
+          return { src: src, geom: geom };
+        }
+
+        var source, geometry;
+        if (info.width > maxTex) {
+          return downscaleToMaxWidth(info.url, info.width, info.height, maxTex).then(function(resized) {
+            var sg = makeSourceAndGeometry(resized);
+            source = sg.src;
+            geometry = sg.geom;
+            return { source: source, geometry: geometry };
+          }).catch(function() {
+            showOverlayMessage('Panorama is too large for this device. Please use tiled (CubeGeometry) assets.');
+            return null;
+          });
+        } else {
+          var sg = makeSourceAndGeometry(info);
+          source = sg.src;
+          geometry = sg.geom;
+          return { source: source, geometry: geometry };
+        }
+      }).then(function(result) {
+        if (!result) return; // already handled
+
+        var source = result.source;
+        var geometry = result.geometry;
+
+        var defaultViewParameters = { yaw: 0, pitch: 0, fov: 90 * Math.PI / 180 };
+        var limiter = Marzipano.RectilinearView.limit.hfov(40 * Math.PI / 180, 100 * Math.PI / 180);
+        var view = new Marzipano.RectilinearView(defaultViewParameters, limiter);
+
+        var scene = viewer.createScene({ source: source, geometry: geometry, view: view, pinFirstLevel: true });
+        scene.switchTo({ transitionDuration: 800 });
+        view.setParameters(defaultViewParameters);
+
+        var gyroBtn = document.getElementById('gyro-btn');
+        var resetBtn = document.getElementById('reset-btn');
+
+        var controls = viewer.controls();
+        var deviceOrientationMethod = null;
+
+        function updateGyroButton(enabled) {
+          gyroBtn.textContent = enabled ? 'Disable Gyro' : 'Enable Gyro';
+          gyroBtn.setAttribute('aria-pressed', String(enabled));
+        }
+
+        function enableGyro() {
+          if (!deviceOrientationMethod) {
+            try {
+              if (typeof DeviceOrientationControlMethod !== 'function') {
+                throw new Error('DeviceOrientationControlMethod not found');
+              }
+              deviceOrientationMethod = new DeviceOrientationControlMethod();
+              controls.registerMethod('deviceOrientation', deviceOrientationMethod);
+            } catch (e) {
+              console.warn('DeviceOrientation control unavailable:', e);
+              return false;
+            }
+          }
+          controls.enableMethod('deviceOrientation');
+          updateGyroButton(true);
+          return true;
+        }
+
+        function disableGyro() {
+          if (deviceOrientationMethod) {
+            controls.disableMethod('deviceOrientation');
+            updateGyroButton(false);
+          }
+        }
+
+        function requestPermissionIfNeeded() {
+          var Dio = window.DeviceOrientationEvent;
+          var Dmo = window.DeviceMotionEvent;
+          var need = (Dio && typeof Dio.requestPermission === 'function') || (Dmo && typeof Dmo.requestPermission === 'function');
+          if (!need) return Promise.resolve('granted');
+
+          var req = Dio && typeof Dio.requestPermission === 'function'
+            ? Dio.requestPermission()
+            : Dmo.requestPermission();
+
+          return req.catch(function(err) {
+            console.warn('Permission request failed:', err);
+            throw err;
+          });
+        }
+
+        gyroBtn.addEventListener('click', function() {
+          var isEnabled = gyroBtn.getAttribute('aria-pressed') === 'true';
+          if (isEnabled) {
+            disableGyro();
+            return;
+          }
+          requestPermissionIfNeeded().then(function(result) {
+            if (result && result !== 'granted') return;
+            enableGyro();
+          }).catch(function() {
+            // denied -> keep mouse/touch controls
+          });
+        });
+
+        resetBtn.addEventListener('click', function() {
+          scene.lookTo(defaultViewParameters, { transitionDuration: 600 });
+        });
+
+        document.addEventListener('visibilitychange', function() {
+          if (document.hidden) {
+            disableGyro();
+          }
+        });
+
+        updateGyroButton(false);
+        if (!hasDeviceOrientation || typeof DeviceOrientationControlMethod !== 'function') {
+          gyroBtn.disabled = true;
+          gyroBtn.title = 'Device orientation not supported on this device/browser';
+        }
+      }).catch(function(err) {
+        console.warn(err && err.message ? err.message : err);
+        showOverlayMessage('Unable to load panorama image on this device.');
+      });
     }
 
     var primary = 'https://unpkg.com/marzipano@0.10.2/dist/marzipano.js';
