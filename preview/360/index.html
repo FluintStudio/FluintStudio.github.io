@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Marzipano 360 - View 1</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <!-- Marzipano will be loaded programmatically (CDN with fallback) before initialization -->
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="view-switch" role="tablist" aria-label="Scenes">
+        <button id="btn-view-1" class="view-btn active" role="tab" aria-selected="true" aria-controls="pano">Salon</button>
+        <button id="btn-view-2" class="view-btn" role="tab" aria-selected="false" aria-controls="pano">Baño</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="controls" role="group" aria-label="Viewer controls">
+        <button id="gyro-btn" class="btn" type="button">Enable Gyro</button>
+        <button id="reset-btn" class="btn" type="button" title="Center view">Center</button>
+      </div>
+    </header>
+    <div id="pano" aria-label="360 degree panorama" role="region"></div>
+    <div id="bottom-overlay" aria-live="polite" aria-atomic="true"></div>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
